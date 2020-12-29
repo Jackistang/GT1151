@@ -1,0 +1,10 @@
+  
+from building import *
+
+cwd     = GetCurrentDir()
+src     = Glob('*.c') + Glob('*.cpp')
+CPPPATH = [cwd]
+
+group = DefineGroup('GT1151', src, depend = ['GT1151_USING_EXAMPLE'], CPPPATH = CPPPATH)
+
+Return('group')
