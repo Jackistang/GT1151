@@ -17,7 +17,7 @@
 
 ### 许可证
 
-GT1151 package 遵循 LGPLv2.1 许可，详见 `LICENSE` 文件。
+GT1151 package 遵循 Apache-2.0 License 许可，详见 `LICENSE` 文件。
 
 ### 依赖
 
