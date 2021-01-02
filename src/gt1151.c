@@ -512,6 +512,6 @@ _exit:
     LOG_E("gt1151 init failed");
     return RT_ERROR;
 }
-INIT_APP_EXPORT(gt1151_init);
+INIT_DEVICE_EXPORT(gt1151_init);
 
 

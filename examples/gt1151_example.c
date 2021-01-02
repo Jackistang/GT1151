@@ -1,5 +1,5 @@
 
-#include "gt1151.h"
+#include "../inc/gt1151.h"
 #include <touch.h>
 #include <rtthread.h>
 #include <rtdevice.h>
