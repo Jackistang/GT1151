@@ -1,9 +1,8 @@
 from building import *
 
 cwd     = GetCurrentDir()
-src     = Glob('*.c') + Glob('*.cpp')
-CPPPATH = [cwd + '/../inc']
+src     = Glob('*.c')
 
-group = DefineGroup('GT1151', src, depend = ['PKG_USING_GT1151'], CPPPATH = CPPPATH)
+group = DefineGroup('GT1151', src, depend = ['PKG_USING_GT1151'])
 
 Return('group')

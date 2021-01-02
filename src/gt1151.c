@@ -7,7 +7,7 @@
  * Date           Author          Notes
  * 2020-11-25     tang jia       the first version
  */
-#include "gt1151.h"
+#include "../inc/gt1151.h"
 
 #include <touch.h>
 #include <rtthread.h>
