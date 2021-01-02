@@ -21,7 +21,8 @@ GT1151 package 遵循 Apache-2.0 License 许可，详见 `LICENSE` 文件。
 
 ### 依赖
 
-RT-Thread I2C 设备框架。
+- RT-Thread 4.0
+- RT-Thread I2C 设备框架
 
 ## 如何打开 GT1151 
 
@@ -38,7 +39,15 @@ RT-Thread online packages
 
 ## 使用 GT1151 
 
-在打开 GT1151 package 后，当进行 bsp 编译时，它会被加入到 bsp 工程中进行编译。
+由于 GT1151 依赖 I2C 设备框架，因此需要先配置好 I2C，然后可以使用 `i2c-tools` 软件包来验证是否配置成功，ART-PI 直接选中 BSP 包里的选项即可。
+
+```
+Hardware Drivers Config --->
+	On-chip Peripheral --->
+		[*] Enable I2C1 BUS(software simulation)
+```
+
+然后再添加 GT1151 软件包，编译下载，即可看见 demo 示例的运行，轻触触摸板会显示坐标信息。
 
 该驱动已对接 TOUCH 设备框架，默认设备名为 "gt1151"，用标准的 TOUCH 设备使用方式即可。
 
