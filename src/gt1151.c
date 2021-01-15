@@ -25,10 +25,33 @@
 
 #define GT1151_ADDRESS         (0x14)
 
-#define GT1151_STATUS          (0x814E)
+#define GTP_READ_COOR_ADDR          (0x814E)
 #define GT1151_PRODUCT_ID      (0x8140)
 #define GT1151_CONFIG          (0x8050)
 #define GT1151_COMMAND         (0x8040)
+
+#define GTP_MAX_TOUCH           10
+#define GTP_DATA_BUFF_LEN(buf_len)  (1 + 8 * (buf_len) + 2)  //STATUS_TEG(1) + TOUCH_DATA(8*GTP_MAX_TOUCH) + KeyValue(1) + CheckSum(1)
+
+#ifndef __gt1151_buf
+#define __gt1151_buf
+#endif /* __gt1151_buf */
+
+#ifndef __user_buf
+#define __user_buf
+#endif /* __user_buf */
+
+/* bit operation */
+#define SET_BIT(data, flag)	((data) |= (flag))
+#define CLR_BIT(data, flag)	((data) &= ~(flag))
+#define CHK_BIT(data, flag)	((data) & (flag))
+
+/* touch states */
+#define BIT_TOUCH			0x01
+// #define BIT_TOUCH_KEY		0x02
+// #define BIT_STYLUS			0x04
+// #define BIT_STYLUS_KEY		0x08
+// #define BIT_HOVER			0x10
 
 #define GT1151_HW_CONFIG_LEN   239
 
@@ -230,7 +253,7 @@ static rt_err_t gt1151_update_hw_config(struct gt1151_object *object)
 static void gt1151_clear_status(struct gt1151_object *object)
 {
     uint8_t status = 0;
-    if (gt1151_write_regs(object, GT1151_STATUS, &status, 1) != RT_EOK)
+    if (gt1151_write_regs(object, GTP_READ_COOR_ADDR, &status, 1) != RT_EOK)
         LOG_D("clear status ERROR");
 }
 
@@ -267,52 +290,136 @@ static rt_err_t gt1151_soft_reset(struct gt1151_object *object)
     return RT_EOK;
 }
 
+static int gt1151_touch_event_handler(struct gt1151_object *object, uint8_t __gt1151_buf *data, uint8_t data_len, uint8_t __user_buf *user_data_buf, rt_size_t user_touch_num)
+{
+    RT_ASSERT(data_len == 11);
+
+    uint8_t touch_data[GTP_DATA_BUFF_LEN(GTP_MAX_TOUCH)] = {0};
+	uint8_t touch_num = 0;
+
+    touch_num = data[0] & 0x0F;
+    if (touch_num > GTP_MAX_TOUCH) {
+        LOG_E("Illegal finger number!");
+        return 0;
+    }
+
+    rt_memcpy(touch_data, data, data_len);
+
+	/* read the remaining coor data 
+        * 0x814E(touch status) + 8(every coordinate
+		* consist of 8 bytes data) * touch num + 
+        * keycode + checksum
+        */
+    if (touch_num > 1) {
+        gt1151_read_regs(object, (GTP_READ_COOR_ADDR + data_len), &touch_data[data_len], (GTP_DATA_BUFF_LEN(touch_num) - data_len));
+    }
+
+    /* cacl checksum */
+    uint8_t checksum = 0;
+    for (int i = 0; i < GTP_DATA_BUFF_LEN(touch_num); i++) {
+        checksum += touch_data[i];
+    }
+    if (checksum) { /* checksum error, read again */
+        gt1151_read_regs(object, GTP_READ_COOR_ADDR, touch_data, GTP_DATA_BUFF_LEN(touch_num));
+
+        checksum = 0;
+        for (int i = 0; i < GTP_DATA_BUFF_LEN(touch_num); i++) {
+            checksum += touch_data[i];
+            LOG_D("touch_data[%d]=%x", i, touch_data[1]);
+        }
+        if (checksum) {
+            LOG_E("Checksum error[%x]", checksum);
+            return 0;
+        }
+    }
+
+    /* 
+    * cur_event , pre_event bit defination
+    * bits:       bit0
+    * event:     touch
+    */
+    uint16_t cur_event = 0;
+    static uint16_t pre_event = 0;
+	static uint16_t pre_index = 0;
+    struct rt_touch_data *pdata = (struct rt_touch_data *)user_data_buf;
+
+    if (touch_num > 0)
+        SET_BIT(cur_event, BIT_TOUCH);
+    
+    /* finger touch event */
+    if (CHK_BIT(cur_event, BIT_TOUCH)) {
+        uint8_t *coor_data = &touch_data[1];
+        int id = coor_data[0] & 0x0F;
+        for (int i = 0; i < GTP_MAX_TOUCH; i++) {
+            if (i == id) {
+                // TOUCH DOWN data
+                if (i < user_touch_num) {
+                    pdata[i].track_id     = id;
+                    pdata[i].event        = RT_TOUCH_EVENT_DOWN;
+                    pdata[i].x_coordinate = coor_data[1] | ((uint16_t)coor_data[2] << 8);
+                    pdata[i].y_coordinate = coor_data[3] | ((uint16_t)coor_data[4] << 8);
+                    pdata[i].width        = coor_data[5] | ((uint16_t)coor_data[6] << 8);
+                    pdata[i].timestamp    = rt_touch_get_ts();
+                }
+
+                if (i < touch_num) {
+                    coor_data += 8;
+                    id = coor_data[0] & 0x0F;
+                }
+                pre_index |= (0x01 << i);
+            } else if (pre_index & (0x01 << 1)) {   /* i != id */
+                // TOUCH UP data
+                if (i < user_touch_num) {
+                    pdata[i].track_id     = id;
+                    pdata[i].event        = RT_TOUCH_EVENT_UP;
+                    pdata[i].timestamp    = rt_touch_get_ts();
+                }
+
+                pre_index &= ~(0x01 << i);
+            }
+        }
+    } else if (CHK_BIT(pre_event, BIT_TOUCH)) {
+        // TOUCH UP data
+        if (user_touch_num > 0) {
+            pdata[0].track_id     = 0;
+            pdata[0].event        = RT_TOUCH_EVENT_UP;
+            pdata[0].timestamp    = rt_touch_get_ts();
+        }
+
+        LOG_D("Released Touch");
+        pre_index = 0;
+    }
+
+    if (!pre_event && !cur_event)
+        LOG_D("Additional Pulse");
+    else
+        pre_event = cur_event;
+    
+    return touch_num;
+}
+
 rt_size_t touch_gt1151_readpoint(struct rt_touch_device *touch, void *data_buf, rt_size_t touch_num)
 {
-    RT_ASSERT(touch_num == 1);  // only support 1 touch point
+    RT_ASSERT(touch);
+    RT_ASSERT(touch_num <= 10);
 
     struct gt1151_object *object = (struct gt1151_object *)touch->config.user_data;
+    RT_ASSERT(object);
 
-    uint8_t status;
-    uint8_t buf[8];
-    uint16_t x = 0, y = 0;
+    uint8_t point_data[11] = {0};    
+    uint8_t res = 0;
 
-    struct rt_touch_data *pdata = (struct rt_touch_data *)data_buf;
+    // struct rt_touch_data *pdata = (struct rt_touch_data *)data_buf;
 
-    gt1151_read_regs(object, GT1151_STATUS, &status, 1);
+    gt1151_read_regs(object, GTP_READ_COOR_ADDR, (rt_uint8_t *)&point_data, sizeof(point_data));
 
-    if (status < 0x80)  // no data get
+    if ((point_data[0]) < 0x80)  // no data ready
         return 0;
 
-    else if (status == 0x80) { // no data get
-        LOG_D("status: %x", status);
-        gt1151_clear_status(object);
-        return 0;
-    }
-    else {
-        gt1151_clear_status(object);
+    res = gt1151_touch_event_handler(object, point_data, sizeof(point_data), data_buf, touch_num);
 
-        LOG_D("status: %x", status);
-
-        gt1151_read_regs(object, GT1151_STATUS, buf, 8);
-
-        x = ((uint16_t)buf[3] << 8) + buf[2];
-        y = ((uint16_t)buf[5] << 8) + buf[4];
-
-        if (x > GT1151_TOUCH_WIDTH - 1)  x = GT1151_TOUCH_WIDTH;
-        if (y > GT1151_TOUCH_HEIGHT - 1) y = GT1151_TOUCH_HEIGHT;
-
-        pdata->x_coordinate = x;
-        pdata->y_coordinate = y;
-        pdata->track_id = 1;
-        pdata->event = RT_TOUCH_EVENT_DOWN;
-        pdata->timestamp = rt_touch_get_ts();
-
-        status = 0;
-
-        LOG_D("\t x: %d, y: %d", x, y);
-    }
-    return 1;
+    gt1151_clear_status(object);
+    return res;
 }
 
 rt_err_t  touch_gt1151_control(struct rt_touch_device *touch, int cmd, void *arg)

@@ -38,16 +38,23 @@ void gt1151_test_thread(void *args)
     /* 交换 X、Y 轴坐标 */
 //    rt_device_control(touch_dev, RT_TOUCH_CTRL_SET_X_TO_Y, RT_NULL);
 
-    struct rt_touch_data data;
+    struct rt_touch_data data[10];
     rt_memset(&data, 0, sizeof(data));
     while (1)
     {
-        rt_device_read(touch_dev, 0, &data, 1);
+        int read_num = rt_device_read(touch_dev, 0, data, 10);
         
-        if (data.x_coordinate > 0 || data.y_coordinate > 0)
-            LOG_I("\t x: %d, y: %d", data.x_coordinate, data.y_coordinate);
+        for (int i = 0; i < read_num; i++) {
+            if (data[i].x_coordinate > 0 || data[i].y_coordinate > 0) {
+                LOG_I("\t track id: %d", data[i].track_id);
+                LOG_I("\t event: %s", data[i].event == RT_TOUCH_EVENT_DOWN ? "RT_TOUCH_EVENT_DOWN" : "RT_TOUCH_EVENT_UP");
+                LOG_I("\t x: %d, y: %d", data[i].x_coordinate, data[i].y_coordinate);
+                LOG_I("\t timestamp: %d", data[i].timestamp);
+                LOG_I("");
+            }
+        }
 
-        rt_memset(&data, 0, sizeof(data));
+        rt_memset(data, 0, sizeof(data));
 
         rt_thread_mdelay(20);
     }
